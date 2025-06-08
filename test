@@ -1,29 +1,27 @@
-@echo off
-setlocal EnableExtensions DisableDelayedExpansion
+# Check for admin privileges
+if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
+    Write-Host "Requesting administrator privileges..."
+    Start-Process -FilePath "powershell.exe" -ArgumentList "-ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
+    exit
+}
 
-:: Check if already running as admin
-fltmc >nul 2>&1 || (
-    echo Requesting administrator privileges...
-    PowerShell Start-Process -FilePath "%~f0" -Verb RunAs -ArgumentList "-silent"
-    exit /b
-)
+# Check current edition
+$editionInfo = DISM /Online /Get-CurrentEdition 2>$null | Where-Object { $_ -match "Current Edition" }
+$currentEdition = ($editionInfo -split ":")[1].Trim()
 
-:: Check current edition
-for /f "tokens=3 delims=: " %%a in ('DISM /English /Online /Get-CurrentEdition 2^>nul ^| find /i "Current Edition :"') do set "osedition=%%a"
+# Exit if already Professional
+if ($currentEdition -ieq "Professional") {
+    exit
+}
 
-:: If already Pro, exit
-if /i "%osedition%"=="Professional" exit /b
+# Set the Pro key
+$proKey = "VK7JG-NPHTM-C97JM-9MPGT-3V66T"
 
-:: If not Pro, activate with Pro key
-set "pro_key=VK7JG-NPHTM-C97JM-9MPGT-3V66T"
+# Try to upgrade with DISM
+$dismResult = DISM /Online /Set-Edition:Professional /ProductKey:$proKey /AcceptEula 2>$null
 
-:: Activate silently
-DISM /online /Set-Edition:Professional /ProductKey:%pro_key% /AcceptEula >nul 2>&1
-
-:: If DISM fails, try alternative method
-if %errorlevel% neq 0 (
-    cscript //nologo %SystemRoot%\System32\slmgr.vbs /ipk %pro_key% >nul 2>&1
-    cscript //nologo %SystemRoot%\System32\slmgr.vbs /ato >nul 2>&1
-)
-
-exit /b
+if ($LASTEXITCODE -ne 0) {
+    # Try using slmgr.vbs if DISM fails
+    cscript //nologo "$env:SystemRoot\System32\slmgr.vbs" /ipk $proKey > $null
+    cscript //nologo "$env:SystemRoot\System32\slmgr.vbs" /ato > $null
+}
